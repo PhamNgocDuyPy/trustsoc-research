@@ -20,74 +20,59 @@
 
 ## 1. So sánh Hiệu năng Tổng thể
 
-### 1.1 Bảng so sánh Baseline (Clean Test Set)
+Bảng dưới đây tổng hợp kết quả thực nghiệm trên cùng bộ dữ liệu kiểm thử, trích từ file `artifacts/tables/table_baseline_comparison.csv`:
 
-Bảng dưới đây tổng hợp kết quả thực nghiệm trên cùng bộ dữ liệu kiểm thử, trích từ `artifacts/tables/table_baseline_comparison.csv`.  
-Cột **Robust-F1** là F1-score đo trên tập adversarial tự nhiên có sẵn trong dữ liệu (metric cốt lõi của Contribution 3).
-
-| Mô hình | Accuracy | Weighted F1 | MAE ↓ | R² ↑ | ECE ↓ | Brier ↓ | **Robust-F1** ↑ | Latency ↓ | Train Time ↓ | Params ↓ |
+| Mô hình | Accuracy | Weighted F1 | MAE (Rủi ro) | R² (Rủi ro) | ECE | Brier | Refusal Acc | Latency | Train Time | Params |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **OpenSOC-AI** | 0.9800 | 0.9720 | 1.480 | 0.574 | — | — | — | 8.79 s | 55.2 min | 12.6 M |
-| **TrustSOC-Lite** | 0.9986 | 0.9986 | 1.311 | 0.985 | 0.181 | 0.068 | 0.9933 | **0.22 ms** | **10 s** | 1.05 M |
-| **TrustSOC-DERG** | **0.9990** | **0.9990** | 0.532 | **0.998** | 0.180 | **0.058** | **0.9954** | 0.25 ms | 19 s | **673 K** |
-| **TrustSOC-Transformer** | 0.9795 | 0.9791 | **0.437** | 0.991 | **0.149** | 0.066 | 0.9489 | 0.74 ms | 38 s | 3.34 M |
+| **OpenSOC-AI** (Baseline) | 0.980 | 0.972 | 1.480 | 0.574 | — | — | — | 8.79 s | 55.2 min | 12.6 M |
+| **TrustSOC-Lite** | 0.9986 | 0.9986 | 1.311 | 0.985 | 0.181 | 0.068 | *Xem Mục 4* | **0.22 ms** | **10 s** | 1.05 M |
+| **TrustSOC-DERG** | **0.9990** | **0.9990** | 0.532 | **0.998** | 0.180 | **0.058** | *Xem Mục 4* | 0.25 ms | 19 s | **673 K** |
+| **TrustSOC-Transformer** | 0.980 | 0.979 | **0.437** | 0.991 | **0.149** | 0.066 | *Xem Mục 4* | 0.74 ms | 38 s | 3.34 M |
 
-> **Ghi chú ký hiệu:** ↑ = càng cao càng tốt, ↓ = càng thấp càng tốt.  
-> Refusal Accuracy = 0.0 trên tập sạch là đúng logic — xem Mục 4 để giải thích chi tiết.  
-> Robust-F1 của OpenSOC-AI không đo được vì mô hình không có Trust Calibration để kích hoạt hành động từ chối.
+**Nhận xét nhanh:**
+- TrustSOC-DERG có **Accuracy và F1 cao nhất** (+0.9%), đồng thời sai số rủi ro R² cao nhất (0.998 vs 0.574 của OpenSOC-AI — cải thiện **74%**).
+- TrustSOC-Lite và DERG nhanh hơn OpenSOC-AI **~35,000 lần** khi suy luận (0.22–0.25 ms vs 8.79 s).
+- TrustSOC-Transformer có **ECE thấp nhất** (0.149) và **MAE thấp nhất** (0.437) — hiệu chuẩn tốt nhất.
+- OpenSOC-AI **không có** cột Refusal Accuracy, ECE, Brier vì thiếu lớp Trust Calibration.
+
+---
+
+### 1.2 Human-AI Trust Alignment Score — Contribution 4
+
+**Trust Alignment Score (TAS)** là chỉ số đặc trưng của Contribution 4 — đo mức độ "thẳng hàng" giữa sự tự tin của AI và thực tế, phản ánh khả năng phối hợp Human-AI. OpenSOC-AI **không có chỉ số tương đương**.
+
+Số liệu thực tế trích từ `artifacts/metrics/metrics_*.json`:
+
+| Thành phần TAS | OpenSOC-AI | TrustSOC-Lite | TrustSOC-DERG | TrustSOC-Transformer |
+|:---|:---:|:---:|:---:|:---:|
+| **Trust Alignment Score** ↑ | — | 0.7263 | 0.6940 | **0.7397** |
+| Accept Precision ↑ | — | 0.9996 | **1.0000** | 0.9996 |
+| Refusal Correctness ↑ | — | 0.9444 | **1.0000** | 0.9877 |
+| Trust-Correctness Correlation ↑ | — | 0.2599 | 0.2539 | **0.4824** |
+| Coverage ↑ | — | **0.9244** | 0.8914 | 0.8536 |
+| Consistency Alignment ↑ | — | **0.3293** | 0.0717 | 0.1393 |
+| Overconfidence Rate ↓ | — | **0.0000** | **0.0000** | 0.0003 |
+| Underconfidence Rate ↓ | — | 0.0507 | **0.0260** | 0.0614 |
+| Adversarial Overconfidence Penalty ↓ | — | **0.0000** | **0.0000** | **0.0000** |
+
+**Giải thích từng thành phần:**
+
+| Thành phần | Ý nghĩa | Mô hình nào tốt nhất |
+|:---|:---|:---|
+| **TAS tổng** | Điểm tổng hợp Human-AI alignment | Transformer (0.7397) — hiệu chuẩn tốt hơn |
+| Accept Precision | Độ chính xác khi mô hình quyết định kết luận | DERG (1.000) — không sai lần nào khi chắc chắn |
+| Refusal Correctness | Tỉ lệ từ chối đúng khi mô hình thực tế đoán sai | DERG (1.000) — từ chối đúng 100% |
+| Trust-Corr. Correlation | Tương quan Pearson: Trust Score ↔ Dự đoán đúng | Transformer (0.4824) — tự tin phản ánh thực tế nhất |
+| Coverage | % mẫu mô hình tự xử lý (không refuse/escalate) | Lite (92.4%) — tự tin xử lý nhiều nhất |
+| Consistency Alignment | Tương quan Trust Score ↔ nhất quán bằng chứng | Lite (0.329) — tin tưởng tốt hơn khi bằng chứng đồng thuận |
+| Overconfidence Rate | Tỉ lệ tự tin ≥ 0.8 nhưng đoán sai | Lite & DERG (0.0%) — không bao giờ quá tự tin |
+| Underconfidence Rate | Tỉ lệ tự tin ≤ 0.4 nhưng đoán đúng | DERG (2.6%) — ít nhút nhát nhất |
 
 **Nhận xét:**
-- TrustSOC-DERG dẫn đầu toàn diện: Accuracy, Weighted F1, R², Brier, và **Robust-F1 cao nhất (0.9954)**, cho thấy GCN trên đồ thị DERG giúp nhận dạng đúng ngay cả các mẫu adversarial tự nhiên.
-- TrustSOC-Transformer: ECE và MAE tốt nhất, nhưng Robust-F1 thấp hơn (0.9489) — đánh đổi: hiệu chuẩn tốt hơn nhưng độ bền với tấn công có phần kém hơn do không dùng GNN.
-- Cả 3 TrustSOC nhanh hơn OpenSOC-AI **12,000–40,000 lần** khi suy luận.
-
----
-
-### 1.2 Khoảng tin cậy 95% Bootstrap (Contribution 4 — Statistical Rigor)
-
-Trích từ `artifacts/tables/table_confidence_intervals.csv` — 1,000 lần bootstrap resample:
-
-| Mô hình | Accuracy (95% CI) | Macro F1 (95% CI) | Weighted F1 (95% CI) | Risk MAE (95% CI) |
-|:---|:---|:---|:---|:---|
-| **TrustSOC-DERG** | 0.9990 ± 0.0006 [0.9976, 1.000] | 0.9946 ± 0.0052 [0.9824, 1.000] | 0.9989 ± 0.0006 [0.9975, 1.000] | 0.532 ± 0.018 [0.498, 0.568] |
-| **TrustSOC-Lite** | 0.9986 ± 0.0007 [0.9972, 0.9997] | 0.9924 ± 0.0076 [0.9736, 0.9997] | 0.9986 ± 0.0007 [0.9971, 0.9997] | 1.310 ± 0.049 [1.219, 1.410] |
-| **TrustSOC-Transformer** | 0.9796 ± 0.0025 [0.9747, 0.9844] | 0.9452 ± 0.0137 [0.9156, 0.9692] | 0.9792 ± 0.0026 [0.9742, 0.9843] | 0.440 ± 0.042 [0.362, 0.527] |
-
-> CI hẹp = kết quả ổn định, không phụ thuộc vào may mắn của một lần chạy duy nhất.
-
----
-
-### 1.3 Kiểm định ý nghĩa thống kê McNemar (Contribution 4 — Statistical Rigor)
-
-Trích từ `artifacts/tables/table_pairwise_significance.csv`:
-
-| Cặp mô hình | McNemar Statistic | p-value | Có ý nghĩa (p < 0.05)? | Cohen's d (Rủi ro) |
-|:---|:---:|:---:|:---:|:---:|
-| DERG vs. Lite | 0.000 | 1.000 | ❌ Không | 0.00061 (rất nhỏ) |
-| DERG vs. Transformer | 52.16 | **5.1 × 10⁻¹³** | ✅ Có (p < 0.001) | 0.00196 |
-| Lite vs. Transformer | 53.02 | **3.3 × 10⁻¹³** | ✅ Có (p < 0.001) | 0.00135 |
-
-**Giải thích:**
-- DERG và Lite **không khác biệt có ý nghĩa** về phân loại (p = 1.0) — cả hai đạt accuracy gần như tuyệt đối trên tập sạch.
-- Cả DERG và Lite đều **vượt trội có ý nghĩa thống kê** so với Transformer (p < 10⁻¹²) — chứng minh đặc trưng đồ thị DERG giúp ích thực sự, không phải ngẫu nhiên.
-
----
-
-### 1.4 Đánh giá Robustness theo từng Loại Tấn công (Contribution 3)
-
-> **Lưu ý:** Bảng phân tích chi tiết theo 7 loại tấn công (`table_robustness.csv`) được tạo khi chạy lệnh `python main.py --mode robustness`. Do pipeline này cần tái-huấn luyện mô hình trên từng tập tấn công riêng biệt, bảng chưa được sinh sẵn trong repository. Bảng dưới là kết quả ước tính từ `Robust-F1` trong baseline và các biểu đồ đã sinh:
-
-| Loại tấn công | TrustSOC-Lite F1 | TrustSOC-DERG F1 | Mô hình nào bền hơn? |
-|:---|:---:|:---:|:---|
-| `adversarial` (tự nhiên) | ~0.993 | **~0.995** | DERG nhờ GNN phát hiện mâu thuẫn cấu trúc |
-| `missing_cti` | ~0.991 | **~0.993** | DERG — graph features bù đắp thiếu CTI |
-| `missing_mitre` | ~0.990 | **~0.992** | DERG — đồ thị vẫn còn các node khác |
-| `noisy_evidence` | **~0.989** | ~0.988 | Lite — TF-IDF ít nhạy với noise văn bản |
-| `evidence_poisoning` *(Mới C3)* | ~0.982 | **~0.987** | DERG — phát hiện node CTI giả qua contradiction score |
-| `evidence_suppression` *(Mới C3)* | ~0.975 | **~0.981** | DERG — robust hơn khi mất nhiều node |
-| `label_manipulation` *(Mới C3)* | ~0.970 | **~0.978** | DERG — nhận ra mâu thuẫn nhãn vs. cấu trúc |
-
-> 3 loại tấn công cuối (in nghiêng) là **đóng góp mới của Contribution 3**, không có trong benchmark OpenSOC-AI gốc.
+- **TrustSOC-Transformer** đạt TAS cao nhất (0.7397) chủ yếu nhờ tương quan Trust-Correctness tốt nhất (0.4824) — mô hình biết phân biệt rõ khi nào mình đúng/sai hơn các mô hình còn lại.
+- **TrustSOC-DERG** có Accept Precision và Refusal Correctness hoàn hảo (1.0) — khi DERG quyết định từ chối hoặc kết luận, nó **luôn đúng**. Đây là tính năng quan trọng nhất trong môi trường SOC thực tế.
+- **TrustSOC-Lite** có Coverage cao nhất (92.4%) và Consistency Alignment tốt nhất — phù hợp cho tác vụ tự động hóa cao, ít cần can thiệp của analyst.
+- **Không có mô hình nào** bị Adversarial Overconfidence (penalty = 0.0) — cả 3 đều không bị đánh lừa bởi tấn công adversarial khi đang ở mức tự tin cao.
 
 ---
 
