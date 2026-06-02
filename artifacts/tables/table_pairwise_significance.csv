@@ -1,0 +1,7 @@
+Model_A,Model_B,McNemar_Stat,p_value,Sig_005,Sig_001,Risk_Cohens_d
+derg,lite,0.0,1.0,False,False,0.0006071682586738203
+derg,transformer,52.1551724137931,5.128120150743598e-13,True,True,0.001956215492430724
+derg,trustsoc_derg,0.0,1.0,False,False,0.0
+lite,transformer,53.018181818181816,3.305133944309091e-13,True,True,0.001353687151950639
+lite,trustsoc_derg,0.0,1.0,False,False,-0.0006071682586738203
+transformer,trustsoc_derg,52.1551724137931,5.128120150743598e-13,True,True,-0.001956215492430724
