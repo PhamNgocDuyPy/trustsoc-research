@@ -12,6 +12,7 @@
    - [Contribution 2 — Trust Calibration Transformer (TCT)](#contribution-2--trust-calibration-transformer-tct)
    - [Contribution 3 — Adversarial SOC Hallucination Dataset](#contribution-3--adversarial-soc-hallucination-dataset)
    - [Contribution 4 — Human-AI Trust Alignment Metric](#contribution-4--human-ai-trust-alignment-metric)
+   - [Contribution 5 — Explainability & XAI (Giải thích được quyết định AI)](#contribution-5--explainability--xai-giải-thích-được-quyết-định-ai)
 3. [Giải thích các Biểu đồ khi Huấn luyện](#3-giải-thích-các-biểu-đồ-khi-huấn-luyện)
 4. [Cải tiến so với OpenSOC-AI và Hạn chế còn tồn tại](#4-cải-tiến-so-với-opensoc-ai-và-hạn-chế-còn-tồn-tại)
 
@@ -204,6 +205,135 @@ TAS vừa là **chỉ số đánh giá** vừa là **hàm mục tiêu tối ưu*
 
 ---
 
+### Contribution 5 — Explainability & XAI (Giải thích được quyết định AI)
+
+**Vấn đề cần giải quyết:** Các mô hình AI trong SOC thường hoạt động như "hộp đen" — analyst không thể hiểu vì sao mô hình lại tin tưởng hoặc từ chối một cảnh báo. Điều này làm giảm mức độ chấp nhận của con người với AI, đặc biệt trong bối cảnh bảo mật quan trọng. OpenSOC-AI không có bất kỳ cơ chế giải thích nào.
+
+**Những gì đã làm trong `src/explainability.py`:** Module này cung cấp **4 phương pháp XAI** để giải thích quyết định tin cậy (trust decision) của hệ thống:
+
+---
+
+#### Phương pháp 1 — Feature Importance từ hệ số Logistic Regression
+
+```python
+def trust_feature_importance(calibrator, feature_names) -> dict[str, float]
+```
+
+8 đặc trưng meta được dùng bởi Trust Calibrator để đưa ra điểm tin cậy:
+
+| Tên đặc trưng | Ý nghĩa |
+|---|---|
+| `confidence` | Xác suất dự đoán đúng của mô hình chính |
+| `uncertainty` | Độ bất định trong dự đoán (entropy) |
+| `reliability` | Độ tin cậy trung bình của các node bằng chứng trong DERG |
+| `contradiction` | Mức độ mâu thuẫn giữa các bằng chứng |
+| `adversarial_noise` | Điểm phát hiện tấn công trong dữ liệu đầu vào |
+| `risk_score` | Điểm rủi ro dự đoán (0–100) |
+| `cti_match_score` | Độ mạnh của khớp với Threat Intelligence |
+| `evidence_consistency` | Tính nhất quán nội tại của các bằng chứng |
+
+**Cách hoạt động:** Trích xuất `coef_` từ LogisticRegression, sắp xếp theo giá trị tuyệt đối → xác định feature nào ảnh hưởng lớn nhất đến quyết định trust.
+
+---
+
+#### Phương pháp 2 — SHAP (SHapley Additive exPlanations)
+
+```python
+def shap_trust_explanations(calibrator, meta_features, max_samples=100) -> dict
+```
+
+- Dùng `shap.LinearExplainer` để tính SHAP values cho Trust Calibrator (LogisticRegression).
+- SHAP values dựa trên lý thuyết game Shapley — phân bổ **đóng góp công bằng** của từng đặc trưng vào quyết định tin cậy cuối cùng.
+- Trả về:
+  - `shap_values`: ma trận SHAP cho toàn bộ tập mẫu.
+  - `feature_importance`: trung bình giá trị tuyệt đối SHAP của từng feature (đo lường tầm quan trọng toàn cục).
+  - `top_3_features`: 3 đặc trưng có tác động lớn nhất lên điểm tin cậy.
+
+> **Ý nghĩa thực tế:** Analyst có thể biết "tại sao mô hình tin tưởng ca này?" → vì `reliability` cao và `contradiction` thấp, hoặc ngược lại "tại sao từ chối?" → vì `adversarial_noise` vượt ngưỡng.
+
+---
+
+#### Phương pháp 3 — Leave-One-Out Evidence Attribution (Quy kết bằng chứng)
+
+```python
+def evidence_importance_for_case(case_row, calibrator, meta_features_single) -> dict
+```
+
+Phân tích **đóng góp của từng đặc trưng bằng chứng** đối với điểm tin cậy của một ca cụ thể:
+
+**Thuật toán:**
+1. Tính `baseline_trust_score` = Trust Score với đầy đủ thông tin.
+2. Với mỗi đặc trưng $i$: thay giá trị thực bằng giá trị "trung lập" (neutral value) → tính lại Trust Score.
+3. `trust_delta[i]` = baseline − score_perturbed → đo mức độ ảnh hưởng.
+
+**Bảng giá trị trung lập (Neutral Values):**
+
+| Đặc trưng | Giá trị trung lập | Lý do |
+|---|:---:|---|
+| `confidence` | 0.5 | Không chắc chắn hoàn toàn |
+| `uncertainty` | 0.5 | Bất định trung bình |
+| `reliability` | 0.7 | Độ tin cậy mặc định bình thường |
+| `contradiction` | 0.0 | Không có mâu thuẫn |
+| `adversarial_noise` | 0.0 | Không có tấn công |
+| `risk_score` | 0.5 | Rủi ro trung bình |
+| `cti_match_score` | 0.0 | Không có CTI |
+| `evidence_consistency` | 1.0 | Nhất quán hoàn hảo |
+
+**Đầu ra mẫu:**
+```
+Case APT-0042: Trust Score = 0.8731, Action = conclude
+  Key factors:
+    - contradiction: decreases_trust (Δ=-0.0021)   ← mâu thuẫn thấp → trust cao
+    - cti_match_score: increases_trust (Δ=+0.1203)  ← CTI khớp mạnh → tăng trust
+    - adversarial_noise: increases_trust (Δ=+0.0887) ← không có noise → trust cao
+```
+
+---
+
+#### Phương pháp 4 — Counterfactual Analysis (Phân tích Phản thực tế)
+
+```python
+def counterfactual_analysis(calibrator, meta_features_single, current_action) -> dict
+```
+
+Trả lời câu hỏi **"Nếu thay đổi thông tin đầu vào thì quyết định sẽ thay đổi như thế nào?"** — giúp analyst hiểu điều kiện nào để mô hình đổi từ `refuse` sang `conclude`.
+
+**6 kịch bản counterfactual được thử nghiệm tự động:**
+
+| Kịch bản | Thay đổi | Ý nghĩa |
+|---|---|---|
+| `perfect_reliability` | `reliability = 1.0` | Nếu tất cả bằng chứng đều đáng tin tuyệt đối |
+| `no_contradiction` | `contradiction = 0`, `adversarial_noise = 0` | Nếu không có bất kỳ mâu thuẫn hay tấn công nào |
+| `high_confidence` | `confidence = 0.95`, `uncertainty = 0.05` | Nếu mô hình chính rất chắc chắn |
+| `with_cti_evidence` | `cti_match_score = 0.8` | Nếu có nguồn Threat Intelligence mạnh |
+| `perfect_consistency` | `evidence_consistency = 1.0` | Nếu logs hoàn toàn nhất quán |
+| `worst_case` | `contradiction = 0.8`, `noise = 0.9`, `confidence = 0.3` | Kịch bản tấn công cực đoan |
+
+**Ví dụ đầu ra:**
+```
+Baseline Trust: 0.42 → Action: refuse
+  → Kịch bản 'no_contradiction': Trust = 0.79 (Δ=+0.37) → sẽ chuyển sang 'conclude'
+  → Kịch bản 'with_cti_evidence': Trust = 0.55 (Δ=+0.13) → vẫn 'investigate'
+  → Kịch bản 'worst_case': Trust = 0.11 (Δ=-0.31) → chắc chắn 'refuse'
+```
+
+→ Analyst biết ngay: "Nếu tìm được nguồn CTI xác nhận, ca này có thể kết luận an toàn."
+
+---
+
+#### Hàm tổng hợp — Batch Case Study cho Bài báo Khoa học
+
+```python
+def generate_case_study_batch(test_df, trust_scores, expected_actions, calibrator,
+                               meta_features, n_cases=5) -> list[dict]
+```
+
+- Tự động chọn **các ca đại diện** — ưu tiên 1 ca cho mỗi loại hành động (`refuse`, `escalate`, `investigate`, `conclude`), chọn ca "borderline" nhất (gần ngưỡng τ nhất) để phân tích sâu nhất.
+- Với mỗi ca: chạy đầy đủ Leave-One-Out Attribution + Natural Language Explanation + Counterfactual Analysis.
+- Kết quả được xuất ra JSON cho `artifacts/reports/` sẵn sàng nhúng vào bài báo.
+
+---
+
 ## 3. Giải thích các Biểu đồ khi Huấn luyện
 
 ### A. Biểu đồ Radar so sánh đa chiều
@@ -303,6 +433,7 @@ TAS vừa là **chỉ số đánh giá** vừa là **hàm mục tiêu tối ưu*
 | Khả năng từ chối | Không có | `decide_actions()` đa yếu tố | Tự nhận biết khi nào không nên kết luận |
 | Benchmark tấn công | Không có | 7 loại hình tấn công | Kiểm chứng độ bền vững toàn diện |
 | Chỉ số đánh giá | Accuracy/F1 | + Trust Alignment Score | Đo được Human-AI alignment |
+| **Giải thích quyết định** | **Không có** | **SHAP + LOO Attribution + Counterfactual** | **Analyst hiểu được "tại sao"** |
 | Độ trễ suy luận | 8.79 s/mẫu | 0.22–0.74 ms | Nhanh hơn 12,000–40,000 lần |
 | Tham số mô hình | 12.6 triệu | 673K–3.34 triệu | Nhẹ hơn 4–18 lần |
 
